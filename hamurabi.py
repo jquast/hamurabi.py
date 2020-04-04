@@ -143,6 +143,7 @@ def main():
         dead = population - full_tummies
         if dead > .45 * population:
             # 560 PRINT:PRINT "YOU STARVED"D"PEOPLE IN ONE YEAR!!!"
+            echo()
             echo(f"You starved {dead} people in one year!!!")
             declare_national_fink_565()
         pct_starve = ((year - 1) * pct_starve + dead * 100 / population) / year
@@ -202,7 +203,7 @@ def buy_acres_320(land_value, bushels):
         num = input_numeric("How many acres do you wish to buy (0 to sell)? ")
         if num < 0:
             steward_quits_850()
-        if land_value * num < bushels:
+        if land_value * num <= bushels:
             return num
         not_enough_bushels_710(bushels)
 
@@ -274,6 +275,7 @@ def declare_national_fink_565():
     # 565 PRINT "DUE TO THIS EXTREME MISMANAGEMENT YOU HAVE NOT ONLY"
     # 566 PRINT "BEEN IMPEACHED AND THROWN OUT OF OFFICE BUT YOU HAVE"
     # 567 PRINT "ALSO BEEN DECLARED 'NATIONAL FINK' !!":GOTO 990
+    echo()
     echo("Due to this extreme mismanagement, you have not only been "
          "impeached and thrown out of office, but you have also been "
          "declared 'NATIONAL FINK' !!")
@@ -308,6 +310,7 @@ def input_numeric(message, default=0):
         except ValueError as err:
             if val.strip():
                 echo(f"Not a number, {val!r}: {err}")
+                continue
             return default
 
 
@@ -315,6 +318,7 @@ def beeping_end_990():
     # 990 PRINT:FOR N=1 TO 10:PRINT CHR$(7);:NEXT N
     # 995 PRINT "SO LONG FOR NOW.":PRINT
     # 999 END
+    echo()
     echo(('\b' * 10) + "So long for now.")
     sys.exit()
 
