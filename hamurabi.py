@@ -129,7 +129,6 @@ def main():
 
         # 541 REM *** HORRORS, A 15% CHANCE OF PLAGUE
         # 542 Q=INT(10*(2*RND(1)-.3))
-
         plague_chance = int(10 * (2 * random.random() - .3))
 
         # 550 IF P<C THEN 210
@@ -158,10 +157,10 @@ def main():
         maybe_died = f"{total_dead} people DIED of starvation!!"
     echo(f"In your 10-year term of office, {pct_starve:2.2f}% of the "
          f"population starved, in other words, {maybe_died}")
-    wealth = acres / population
+    wealth = acres // population
     # 870 PRINT "YOU STARTED WITH 10 ACRES PER PERSON AND ENDED WITH"
     # 875 PRINT L"ACRES PER PERSON.":PRINT
-    echo("You started with 10 acres per person, and ended with {wealth:2.2f}.")
+    echo("You started with 10 acres per person, and ended with {wealth}.")
 
     # 880 IF P1>33 THEN 565
     # 885 IF L<7 THEN 565
