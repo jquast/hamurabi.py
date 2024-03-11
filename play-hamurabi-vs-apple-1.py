@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # std
+import functools
+import dataclasses
 import datetime
 import glob
 import sys
@@ -11,9 +13,11 @@ import re
 # 3rd
 import simple_term_menu
 import streamexpect
+import tabulate
 import blessed
 import serial
 import tqdm
+import pyte
 
 def lf_to_cr(s): return s.replace('\n', '\r')
 def cr_to_lf(s): return s.replace('\r', '\n')
@@ -24,9 +28,49 @@ def cr_to_lf(s): return s.replace('\r', '\n')
 # code for HAMURABI.BAS, then, runs it over and over,
 # playing computer against computer
 
+WINDOW_Y_TOP = 8
+WINDOW_X_LEFT = 25
+
+@dataclasses.dataclass
+class DataTableItem:
+    turn: int
+    wealth: int
+    pop: int
+    infants: int
+    starved: int
+    plague: int
+    acres: int
+    change: int
+    harvested: int
+    feed: int
+    rats: int
+    planted: int
 
 def main(repl=False):
     term = blessed.Terminal()
+    window_calc = pyte.Screen(40, 24)
+    stream_calc = pyte.Stream(window_calc)
+    window_game = pyte.Screen(40, 24)
+    stream_game = pyte.Stream(window_game)
+    assert term.width >= 134
+    assert term.height >= 49
+
+    def print_window(text, window, stream, x, color='bright_red'):
+        term_attr = getattr(term, color)
+        if isinstance(text, bytes):
+            text = text.decode()
+        stream.feed(term_attr(text.replace('\r', '\r\n')))
+        for y in window.dirty:
+            for inner_x in range(window.columns):
+                char = window.buffer[y][inner_x]
+                if char.fg == 'default':
+                    term_attr = str
+                else:
+                    term_attr = term.color_rgb(int(char.fg[0:2], 16), int(char.fg[2:4], 16), int(char.fg[4:6], 16))
+                print(term.move_yx(y + WINDOW_Y_TOP, x + inner_x) + term_attr(char.data) or ' ', end='', flush=True)
+                
+    print_calc = functools.partial(print_window, window=window_calc, stream=stream_calc, x=2 + WINDOW_X_LEFT, color='darkolivegreen3')
+    print_game = functools.partial(print_window, window=window_game, stream=stream_game, x=45 + WINDOW_X_LEFT)
     output = ''
     devices = glob.glob('/dev/cu.*')
     if len(devices) < 1:
@@ -41,13 +85,18 @@ def main(repl=False):
             print("You have selected to exit!")
             exit(0)
         serial_device = devices[menu_entry_index]
-    with serial.Serial(serial_device, baudrate=2400, rtscts=0, timeout=1) as ser, term.cbreak():
+
+#    def fn_echo(text, color='chocolate'):
+#        term_attr = getattr(term, color)
+#        print(term_attr(text.decode().replace('\r', '\n')), end='', flush=True)
+
+    with serial.Serial(serial_device, baudrate=2400, rtscts=0, timeout=2) as ser, term.cbreak():
         # any time opening the serial device, the computer does a soft reset, it won't accept
         # keyboard or serial input or provide video output until 2 seconds have elapsed.
+        print(term.move(0, 0) + term.clear())
         time.sleep(2)
         if not repl:
-            print(term.move(0, 0) + term.clear())
-            print('Reset computer now')
+            print('Reset computer now, press any key')
             result = ''
             while True:
                 result += ser.read(10).decode()
@@ -58,8 +107,10 @@ def main(repl=False):
             send_code(ser)
             print('Code loaded successfully!')
         else:
-            send_echo(ser, 'RUN\r')
-        play_game(ser, term)
+            ser.write(b'\r\r')
+            time.sleep(1)
+            send_echo(ser, print_game, 'RUN\r')
+        play_game(ser, term, print_calc, print_game)
 
 def send_echo_byte(ser, send_byte: bytes):
     assert len(send_byte) == 1, send_byte
@@ -75,12 +126,16 @@ def send_echo_byte(ser, send_byte: bytes):
         return recv_byte
 
 
-def send_echo(ser, send_string: str):
+def send_echo(ser, printer: callable, send_string: str):
     for send_byte in send_string.encode('ascii'):
         send_echo_byte(ser, bytes([send_byte]))
+        # transpose for local tty output
+#        if send_byte == '\r':
+#            send_byte = '\r'
+        printer(bytes([send_byte]).decode(), color='gold')
 
 def send_code(ser):
-   code_data = open('software/HAMMURABI.TXT').read()
+   code_data = open('apple1-HAMMURABI.TXT').read()
    in_basic = False
    # this is a wozmon insert sequence, send one byte at a time, awaiting echo back from the apple-1
    # serial port, to ensure not to overrun the max232 chip, which has no flow control
@@ -113,13 +168,13 @@ def send_code(ser):
        print('Code load completed successfully!')
 
 MATCH_GAME_BEGIN = b'\r\rTRY YOUR HAND AT GOVERNING ANCIENT\rSUMERIA SUCCESSFULLY FOR A 10-YEAR TERM\rOF OFFICE.\r'
-MATCH_TURN_BEGIN = (rb'\r\rHAMURABI: I BEG TO REPORT TO YOU,\r'
+MATCH_TURN_BEGIN = (rb'\rHAMURABI: I BEG TO REPORT TO YOU,\r'
                     rb'IN YEAR (?P<YEAR>[0-9]{1,2}), (?P<STARVED>[0-9]{1,2}) PEOPLE STARVED,\r'
                     rb'(?P<INFANTS>[0-9]{1,3}) CAME TO THE CITY.\r'
                     rb'(?P<HORRIBLE_PLAGUE>A HORRIBLE PLAGUE STRUCK!!!\r--- HALF THE POPULATION DIED ---\r)?'
                     rb'THE POPULATION IS NOW (?P<POPULATION>[0-9]{1,4})\r'
                     rb'THE CITY NOW OWNS (?P<ACRES>[0-9]{1,9}) ACRES.\r'
-                    rb'YOU HARVESTED (?P<HARVESTED>[0-9]{1,9}) BUSHELS PER ACRE,\r'
+                    rb'YOU HARVESTED (?P<HARVESTED>[0-9]) BUSHELS PER ACRE,\r'
                     rb'RATS ATE (?P<RATS_EATEN>[0-9]{1,5}) BUSHELS,\r'
                     rb'YOU NOW HAVE (?P<BUSHELS>[0-9]{1,8}) BUSHELS IN STORE.\r')
 MATCH_TURN_BUY = (rb'\rLAND IS TRADING AT (?P<LAND_VALUE>[0-9]{1,2}) BUSHELS PER ACRE,\r'
@@ -128,14 +183,6 @@ MATCH_TURN_SELL = b'\rHOW MANY ACRES DO YOU WISH TO SELL?'
 MATCH_TURN_FEED = b'\rHOW MANY BUSHELS DO YOU WISH TO FEED YOUR PEOPLE?'
 MATCH_TURN_PLANT = b'\rHOW MANY ACRES DO YOU WISH TO PLANT\rWITH SEED?'
 MATCH_PEOPLE_STARVED = b'\rYOU STARVED (?P<STARVED_TOOMANY>[0-9]{1,4}) PEOPLE IN ONE YEAR!!!\r'
-
-# IN YOUR 10 YEAR TERM OF OFFICE 0\r
-# PERCENT OF THE POPULATION STARVED ON THE\r
-# AVERAGE, I.E., A TOTAL OF 11 PEOPLE\r
-# DIED!!!\r
-# YOU STARTED WITH 10 ACRES PER PERSON \r
-# AND ENDED WITH 9 ACRES\r
-# PER PERSON.\r
 MATCH_LAST_TURN = (rb'\rIN YOUR 10 YEAR TERM OF OFFICE (?P<PCT_STARVED>[0-9]{1,3})\r'
                    rb'PERCENT OF THE POPULATION STARVED ON THE\r'
                    rb'AVERAGE, I.E., A TOTAL OF (?P<TOTAL_DEATHS>[0-9]{1,4}) PEOPLE\r'
@@ -143,7 +190,6 @@ MATCH_LAST_TURN = (rb'\rIN YOUR 10 YEAR TERM OF OFFICE (?P<PCT_STARVED>[0-9]{1,3
                    rb'YOU STARTED WITH 10 ACRES PER PERSON \r'
                    rb'AND ENDED WITH (?P<WEALTH>[0-9]{1,4}) ACRES\r'
                    rb'PER PERSON.\r')
-
 MATCH_NATIONAL_FINK = (b'DUE TO THIS EXTREME MISMANAGEMENT YOU\r'
                        b'HAVE NOT ONLY BEEN IMPEACHED AND THROWN\r'
                        b'OUT OF OFFICE BUT YOU HAVE ALSO BEEN\r'
@@ -163,26 +209,28 @@ MATCH_END_RATINGS = f'({MATCH_NATIONAL_FINK.decode()}|{MATCH_FANTASTIC.decode()}
 
 MATCH_END_GAME = b"\rSO LONG FOR NOW"
 
-#THINK_AGAIN = (b'\rHAMURABI: THINK AGAIN. YOU HAVE ONLY\r'
-#               b'(?P<ACRES>[0-9]{1,9}) BUSHELS OF GRAIN. NOW THEN\r')
 
-def play_game(ser, term):
+
+def play_game(ser, term, print_calc, print_game):
     game_log = []
-    with streamexpect.wrap(ser) as stream:
+
+    lines = tabulate.tabulate([["x" * 40, "z"*40]]*24, tablefmt='rounded_outline').splitlines()
+    for y, line in enumerate(lines):
+        print(term.move_yx(y=WINDOW_Y_TOP + y - 1, x=WINDOW_X_LEFT) + line)
+
+    with streamexpect.wrap(ser, fn_echo=functools.partial(print_game, color='chocolate')) as stream:
         while True:
-            # XXX risk_multiplier, even at 1.5, a 1-acre harvest with some rats
-            # can starve us, so we are a very conservative party, hoarding
-            # plenty of grain and making aggressive trades in the land market.
-            risk_multiplier = 2
-            input_acres = 100
-            final_starting_bushels = 2500
+            input_acres = 1000
+            plant_acres = 1000
+            harvested = 3
+            previous_starting_bushels = 0
+            final_starting_bushels = 2800
             population = 95
-            plant_acres = 100
             buy_acres = 0
             sell_acres = 0
             feed_people = 0
-            print('Waiting for game start')
-            stream.expect_bytes(MATCH_GAME_BEGIN)
+            rats_eaten = 200
+            #next_turn_bushels = [2800]
             lost = False
             total_rats_eaten = 0
             total_harvested = 0
@@ -191,163 +239,194 @@ def play_game(ser, term):
             total_lost_to_plague = 0
             total_land_purchases = 0
             total_land_sales = 0
+            acres_cost = 0
+
+            print_calc('Ready ...\r')
+            stream.expect_bytes(MATCH_GAME_BEGIN)
+
+            data_table = []
+            with open('game_log.csv', 'r') as f:
+                reader = csv.DictReader(f)
+                games = [row['final_score'] for row in reader]
+                total_games = len(games)
+                games_3 = games.count('3')
+                games_2 = games.count('2')
+                games_1 = games.count('1')
+                games_0 = games.count('0')
+                headers = ['total games', 'best', 'good', 'ok', 'lost']
+                table_data = [
+                    [f'{total_games:,}', f'{games_3:,}', f'{games_2:,}', f'{games_1:,}', f'{games_0:,}'],
+                    ['pct.',
+                     (f'{(games_3/total_games)*100:2.1f}' if games_3 else '0') + '%',
+                     (f'{(games_2/total_games)*100:2.1f}' if games_2 else '0') + '%',
+                     (f'{(games_1/total_games)*100:2.1f}' if games_1 else '0') + '%',
+                     (f'{(games_0/total_games)*100:2.1f}' if games_0 else '0') + '%',]]
+
+                lines = tabulate.tabulate(table_data, tablefmt='rounded_outline', stralign='right', headers=headers).splitlines()
+                for y, line in enumerate(lines):
+                    print(term.move_yx(y=y, x=WINDOW_X_LEFT + 15) + line)
+
             for turn in range(1, 12):
-                if turn == 10:
-                    risk_multiplier = 1
                 searcher = streamexpect.SearcherCollection(
                     streamexpect.RegexSearcher(MATCH_TURN_BEGIN),
                     streamexpect.RegexSearcher(MATCH_PEOPLE_STARVED),
                 )
-                match = stream.expect(searcher)
+                match = stream.expect(searcher, timeout=10)
+                if match is None:
+                    raise TimeoutError('Timeout in MATCH_TURN_BEGIN')
                 match_values = {key: int(value.decode()) if value and value.decode().isdigit() else value
                                 for key, value in match.groupdict.items()}
                 if 'STARVED_TOOMANY' in match_values:
-                    print(f"Game lost: starvation ({match_values['STARVED_TOOMANY']})")
+                    print_calc(f"Game lost: starvation ({match_values['STARVED_TOOMANY']})\r")
                     lost = True
                     break
-                print('='* 40)
+
                 turn = match_values['YEAR']
-                print(f'Year                   {turn}')
-                print('='* 40)
                 starting_population = population
-                print(f'Starting population    {starting_population}')
                 infants = match_values['INFANTS']
-                if infants > 0:
-                    print(f'                     + {infants} (infants)')
-                    total_infants += infants
+                total_infants += infants
                 starved = match_values['STARVED']
-                if starved:
-                    print(f'                     - {starved} (starved)')
-                    total_starved += starved
+                total_starved += starved
+
                 lost_to_plague = 0
                 if match_values['HORRIBLE_PLAGUE']:
                     lost_to_plague = int(math.ceil((starting_population + infants - starved) / 2))
-                    print(f'                     - {lost_to_plague} (plague)')
-                    total_lost_to_plague += lost_to_plague
+                total_lost_to_plague += lost_to_plague
                 population = match_values['POPULATION']
-                print('                    ---------------')
-                print(f'Ending population   => {population}')
                 assert starting_population + infants - lost_to_plague - starved == population
 
-                print()
                 starting_acres = input_acres
-                if buy_acres or sell_acres:
-                    print(f'Starting acres         {starting_acres}')
-                if sell_acres:
-                    print(f'                     - {sell_acres}')
-                    total_land_sales += sell_acres
-                if buy_acres:
-                    print(f'                     + {buy_acres}')
-                    total_land_purchases += buy_acres
-                if buy_acres or sell_acres:
-                    print('                    ---------------')
+                total_land_sales += sell_acres
+                total_land_purchases += buy_acres
                 input_acres = match_values['ACRES']
-                print(f'Ending acres        => {input_acres}')
-                if buy_acres or sell_acres:
-                    assert input_acres == starting_acres + buy_acres - sell_acres
-
-                print()
                 wealth = input_acres / population
-                print(f'Wealth              => {wealth:2.1f}')
+                assert input_acres == starting_acres + buy_acres - sell_acres
 
                 harvested = match_values['HARVESTED']
                 total_harvested += harvested
-                if turn != 1:
-                    print()
-                    print(f'Starting bushels       {final_starting_bushels}')
                 input_bushels = match_values['BUSHELS']
-                if turn != 1:
-                    rats_eaten = match_values['RATS_EATEN']
-                    if feed_people:
-                        print(f'                     - {feed_people} (food)')
-                    if plant_acres:
-                        print(f'                     - {plant_acres // 2} (plant)')
-                    if rats_eaten:
-                        print(f'                     - {rats_eaten} (rats)')
-                        total_rats_eaten += rats_eaten
-                    print(f'                     + {harvested * plant_acres} ({harvested} harvested per acre)')
-                    print('                    ---------------')
+                rats_eaten = match_values['RATS_EATEN']
+                total_rats_eaten += rats_eaten
+                if turn == 1:
+                    assert input_bushels == (
+                        (harvested * plant_acres)
+                        - rats_eaten)
+                else:
                     assert input_bushels == (final_starting_bushels
-                                             - rats_eaten
-                                             - feed_people
-                                             - (plant_acres // 2)
-                                             + (harvested * plant_acres))
-                print(f'Ending bushels      => {input_bushels}')
+                                                - rats_eaten
+                                                - feed_people
+                                                - (plant_acres // 2)
+                                                + (harvested * plant_acres))
+
+                print_calc('\r\r\r' + '='* 40 + '\r')
+                print_calc(f'Year                   {turn}\r')
+                print_calc('='* 40)
+                print_calc(f'Starting population    {starting_population}\r')
+                if infants > 0:
+                    print_calc(f'                     + {infants} (infants)\r')
+                if starved:
+                    print_calc(f'                     - {starved} (starved)\r')
+                if lost_to_plague:
+                    print_calc(f'                     - {lost_to_plague} (plague)\r')
+                print_calc('                    ---------------\r')
+                print_calc(f'Ending population   => {population}\r')
+                if buy_acres or sell_acres:
+                    print_calc('\r')
+                    print_calc(f'Starting acres         {starting_acres}\r')
+                if sell_acres:
+                    print_calc(f'                     - {sell_acres} (sold)\r')
+                if buy_acres:
+                    print_calc(f'                     + {buy_acres} (bought)\r')
+                if buy_acres or sell_acres:
+                    print_calc('                    ---------------\r')
+                print_calc(f'Ending acres        => {input_acres}\r')
+                print_calc(f'Wealth              => {wealth:2.1f}\r')
+                print_calc('')
+                print_calc(f'Food BEGIN =>  {previous_starting_bushels}\r')
+                if sell_acres:
+                    print_calc(f'             + {sell_acres * acres_cost} (land sale)\r')
+                if buy_acres:
+                    print_calc(f'             - {buy_acres * acres_cost} (land purchase)\r')
+                if feed_people:
+                    print_calc(f'             - {feed_people} (food)\r')
+                if plant_acres:
+                    print_calc(f'             - {plant_acres // 2} (planted)\r')
+                if turn != 1:
+                    food_in_store = previous_starting_bushels + (sell_acres * acres_cost) - (buy_acres * acres_cost) - feed_people - (plant_acres // 2)
+                    print_calc(f'In STORE   =>  {food_in_store}\r')
+                if rats_eaten:
+                    print_calc(f'             - {rats_eaten} (rats eaten)\r')
+                print_calc(f'             + {harvested * plant_acres} ({harvested}/acre)\r')
+                print_calc('            ---------------\r')
+                print_calc(f'Food END   =>  {input_bushels}\r')
 
                 if turn == 11:
                     break
 
                 match = stream.expect_regex(MATCH_TURN_BUY)
                 acres_cost = int(match.groupdict['LAND_VALUE'])
-                print()
-                print(f'Land Value          => {acres_cost} (per acre)')
+                print_calc(f'Land Value => {acres_cost} (per acre)\r')
 
+                # calculate land sales
                 sell_acres = calc_land_sales(population=population, given_bushels=input_bushels,
                                              acres=input_acres, acres_cost=acres_cost,
-                                             turn=turn, risk_multiplier=risk_multiplier)
+                                             turn=turn)
+
+                # calculate land purchases
                 buy_acres = 0
                 if sell_acres == 0:
                     buy_acres = calc_land_purchases(population=population, given_bushels=input_bushels + (sell_acres * acres_cost),
                                                     acres=input_acres - sell_acres,
-                                                    acres_cost=acres_cost, turn=turn, risk_multiplier=risk_multiplier)
-                final_acres = input_acres - sell_acres + buy_acres
+                                                    acres_cost=acres_cost, turn=turn)
 
+                previous_starting_bushels = input_bushels # final_starting_bushels
                 final_starting_bushels = input_bushels + (sell_acres * acres_cost) - (buy_acres * acres_cost)
+                final_acres = input_acres - sell_acres + buy_acres
+                # TODO: if plant_acres < final_acres, then, we should 0 out our buys and sell acres that we cannot plant!
+                plant_acres, feed_people = determine_food_distribution(final_starting_bushels, population, final_acres, turn)
+                #next_turn_bushels = predict_next_turn_bushels(final_starting_bushels, plant_acres, feed_people)
 
-                # We can win the game while starving up to 3% of the population !
-                starve_people = int(math.ceil(population * .03))
-                feed_people = min((population - starve_people) * 20, final_starting_bushels)
+                # print_calc(f'Will buy {buy_acres} of land, sell {sell_acres}, feed {feed_people}, and plant {plant_acres} acres.\r')
 
-                plant_acres = min(final_acres, population * 10, final_starting_bushels - feed_people)
+                data_table.append(DataTableItem(
+                    turn=turn,
+                    wealth=f'{wealth:2.1f}',
+                    pop=f'{population:,}',
+                    infants=f'+{infants:,}',
+                    plague=f'{lost_to_plague*-1:,}',
+                    starved=f'{starved*-1:,}',
+                    acres=f'{input_acres:,}',
+                    change=f'+{buy_acres}' if buy_acres else sell_acres * -1,
+                    harvested=f'+{harvested * plant_acres:,}',
+                    planted=f'{(plant_acres // 2) * -1:,}',
+                    feed=f'{feed_people * -1:,}',
+                    rats=f'{rats_eaten*-1:,}',
+                    ))
 
-                possible_values = []
-                bushels_allocated = feed_people + (plant_acres // 2)
-                for bushel_per_acre_harvested in range(1, 6):
-                    _harvested = (bushel_per_acre_harvested * plant_acres)
-                    # rats can eat 0, 1/2, or 1/4 of available food
-                    for rats_multiplier in (.5, .75, 1):
-                        _eaten = int(math.ceil((final_starting_bushels - feed_people - plant_acres) * rats_multiplier))
-                        possible_values.append(final_starting_bushels - _eaten + _harvested)
-                possible_values.sort()
-                print()
-                print(' => Buy ' + str(buy_acres) + ' acres of land')
-                send_echo(ser, f'{buy_acres}\r')
+                with term.location(y=WINDOW_Y_TOP + 26, x=0):
+                    print(tabulate.tabulate(data_table, tablefmt='rounded_outline', headers='keys', stralign='right'), end='')
+                    print(term.clear_eos, end='', flush=True)
+
+
+                send_echo(ser, print_game, f'{buy_acres}\r')
                 if buy_acres == 0:
                     # when buying '0' acres, expect prompt to sell
-                    print(' => Sell ' + str(sell_acres) + ' acres of land')
                     stream.expect_bytes(MATCH_TURN_SELL)
-                    send_echo(ser, f'{sell_acres}\r')
+                    send_echo(ser, print_game, f'{sell_acres}\r')
 
-                print(f' => Feed your people {feed_people} bushels of grain')
                 stream.expect_bytes(MATCH_TURN_FEED)
-                send_echo(ser, f'{feed_people}\r')
+                send_echo(ser, print_game, f'{feed_people}\r')
 
-                print(f' => Plant {plant_acres} acres of land with grain')
                 stream.expect_bytes(MATCH_TURN_PLANT)
-                send_echo(ser, f'{plant_acres}\r')
-
-                print(f' ** risk_multiplier={risk_multiplier}, bushels_allocated={bushels_allocated}')
-                print(f' ** Possible bushels next turn: {possible_values}')
-                print()
+                send_echo(ser, print_game, f'{plant_acres}\r')
 
             game_record = {}
             final_score = 0
             if not lost:
-                print('Waiting for game end')
+                print_calc('Waiting for game end\r')
                 match = stream.expect_regex(MATCH_LAST_TURN)
                 game_record.update({key.lower(): int(value) for key, value in match.groupdict.items()})
-                match = stream.expect_regex(MATCH_END_RATINGS)
-                # todo change to dict
-                for check_score, check_pattern in (
-                        (0, MATCH_NATIONAL_FINK),
-                        (1, MATCH_UNPLEASANT),
-                        (2, MATCH_NOT_TOO_BAD),
-                        (3, MATCH_FANTASTIC)):
-                    # just check first 20 chars, this is a bit of a cheat ..
-                    # maybe better to use PNAME or something?
-                    if check_pattern[:20] in match.match:
-                        final_score = check_score
-                        break
+                final_score = determine_final_score(stream)
             lost = lost or (final_score == 0)
             stream.expect_bytes(MATCH_END_GAME)
             game_record.update({
@@ -369,85 +448,121 @@ def play_game(ser, term):
             save_game_log(game_record)
             stream.expect_bytes(b'>')
             if lost:
-                print('We Lost :(')
-                print('Press any key for another game ...')
-                term.inkey()
+                print_calc('We Lost :(\r')
 
-            send_echo(ser, 'RUN\r')
+            send_echo(ser, print_game, 'RUN\r')
 
+def determine_food_distribution(final_starting_bushels, population, final_acres, turn):
+    # we can always starve 3% of our population without reprocussion !
+    starve_people = (population * .03).__ceil__()
 
-def calculate_grain_target(population, acres, risk_multiplier, turn):
-    # let us calculate, how much food is needed to survive
-    # in the worst-case scenario, that only 1 bushel per acre is harvested
-    # and that rats eat 1/2 of what is in store, how much food is needed
-    # to feed our population and plant our fields in such case?
-    grain_needed = population * 20 + (acres // 2)
+    for _ in range(starve_people, population - starve_people):
+        grain_needed = calculate_grain_starved(population, starve_people, final_acres, turn)
+        
+        # how many people can we starve?
+        feed_people = (population - starve_people) * 20
+        surplus = final_starting_bushels - grain_needed
+        disp_message = (f'surplus<{surplus}> = final_starting_bushels<{final_starting_bushels}> '
+                        f'- grain_needed<{grain_needed}>: ')
+
+        # starvation limit is 45% for the microsoft basic port, but
+        # for the integer basic (Apple 1) version, we calculate against
+        # an upscaled formula:
+        #     D=P-C: IF 10*d>4*P THEN 560
+        if 10 * starve_people >= 4 * population:
+            # print_calc(disp_message + f'starvation limit reached.\r')
+            starve_people -= 1
+            break
+
+        if surplus > 0:
+            # print_calc(disp_message + f'surplus met.\r')
+            break
+
+        if final_starting_bushels - (feed_people // 2) < 0:
+            # print_calc(disp_message + f'GAME FAILURE PREDICTED!\r')
+            break
+
+        starve_people += 1
+    
+    feed_people = (population - starve_people) * 20
+    plant_acres = 0 if turn == 10 else min(population * 10, final_acres, ((final_starting_bushels - feed_people) * 2) - 1)
+    return plant_acres, feed_people
+
+def calculate_grain_target(population, acres, turn):
+    # let us calculate, how much food is needed to feed everyone and plant our fields,
+    # we depend on the land we have "banked" for sale to reduce risk of starvation after
+    # a season of low harvest and hungry rats ..
+    # XXX TODO: carry in total population starvation and calculate more exactly
+    starve_people = (population * .03).__ceil__()
+    feed_population = (population - starve_people) * 20
+    # print(f'? feed_population<{feed_population}> = ({population} - ({population} * .03).__ceil__()) * 20')
     if turn == 10:
-        given_bad_harvest = 0
-        given_rats_multiplier = 1
-    else:
-        given_bad_harvest = (acres * 1)
-        given_rats_multiplier = risk_multiplier
-    return (grain_needed // given_rats_multiplier) + given_bad_harvest
+        # leftover grain does not affect score, let the next ruler deal with it!
+        return feed_population
+    # how much grian we need to feed everyone and plant our fields.
+    result = feed_population + (min(acres, population * 10) // 2) + 1
+    # print(f'?-1 starve_people={starve_people}')
+    # print(f'?-1 result<{result}> = feed_population<{feed_population}> + (min(acres<{acres}>, population<{population}> * 10) // 2)')
+    # a BUG in the original game?!
+    # --- 440 PRINT "HOW MANY ACRES DO YOU WISH TO PLANT WITH SEED";
+    # --- 441 INPUT D:IF D=0 THEN 511
+    # --- 442 IF D<0 THEN 850
+    # should be,
+    # --- 442 IF D<=0 THEN 850
+    # we can't plant 1000 acres with 500 bushels of grain, we can only plant 999 acres !?
+    # is this, leave 1 bushel for the king?! :)
+    return result
 
+def calculate_grain_starved(population, starve_people, acres, turn):
+    # same as calculate_grain_target(), but for starving a specific amount of people
+    # rather than 3%
+    feed_population = (population - starve_people) * 20
+    if turn == 10:
+        return feed_population 
+    result = feed_population + (min(acres, population * 10) // 2) + 1
+    return result
 
-def calc_land_sales(population, given_bushels, acres, acres_cost, turn, risk_multiplier):
-    # we want to reserve the full acres that may be planted
-    can_plant_acres = population * 10
-    # aim to increment wealth by 1 for each turn, so that by turn 7 we are "wealthy"
-    # for end game, maybe could be linear to final turn (10)
-    min_wealth = turn
+def calc_land_sales(population, given_bushels, acres, acres_cost, turn):
     sell_acres = 0
-    for sell_acres in range(0, acres):
-        bushels = given_bushels + (acres_cost * sell_acres)
-        grain_needed = calculate_grain_target(population, acres - sell_acres, risk_multiplier, turn)
-        surplus = bushels - grain_needed
-        wealth = (acres - sell_acres) / population
-        disp_message = (f'sell_acres={sell_acres}? grain_needed={grain_needed}, bushels={bushels}, surplus={surplus}, wealth={wealth:2.2f}:')
-        # no need to sell land if there is a surplus of food.
-        if surplus > grain_needed:
-            print(disp_message + ' surplus exceeded!')
+    for sell_acres in range(0, acres + 1):
+        #bushels = given_bushels + (acres_cost * sell_acres)
+        grain_needed = calculate_grain_target(population, acres - sell_acres, turn)
+        surplus = given_bushels + (sell_acres * acres_cost) - grain_needed 
+        disp_message = f'sell_acres={sell_acres} ? surplus<{surplus}> = given_bushels<{given_bushels}> + (sell_acres<{sell_acres}> * acres_cost<{acres_cost}>) - grain_needed<{grain_needed}>: '
+        # no need to sell land if there will be a surplus of food,
+        # but, never end up with less land than we can reasonable plant,
+        if surplus > 0:
+            # print_calc(disp_message + f'surplus met.\r')
             break
-        if wealth < min_wealth:
-            # it is more important to sell enough land to feed our people than for them to be wealthy,
-            # we may have to sell land when there is a shortfall of food when risk_multiplier != 0
-            print(disp_message + ' too unwealthy!')
+    assert sell_acres < acres + 1, sell_acres
+    return max(0, sell_acres)
+
+def calc_land_purchases(population, given_bushels, acres, acres_cost, turn):
+    # we aggressively buy land, because rats cannot eat land!
+    MAX_BUY_ACRES = 999
+    for buy_acres in range(0, MAX_BUY_ACRES + 2):
+        grain_needed = calculate_grain_target(population, acres + buy_acres, turn)
+        surplus = given_bushels - grain_needed - (buy_acres * acres_cost)
+        disp_message = f'buy_acres={buy_acres} ? surplus<{surplus}> = given_bushels<{given_bushels} - grain_needed<{grain_needed}> - (buy_acres<{buy_acres}> * acres_cost<{acres_cost}>): '
+
+        # only buy land when there is a surplus of grain.
+        if surplus < 0:
+            # print_calc(disp_message + f'surplus met.\r')
+            buy_acres -= 1
             break
+    assert buy_acres <= MAX_BUY_ACRES, buy_acres
+    return max(0, buy_acres)
 
-
-    return max(0, sell_acres - 1)
-
-def calc_land_purchases(population, given_bushels, acres, acres_cost, turn, risk_multiplier):
-    can_plant_acres = population * 10
-    for buy_acres in range(0, acres):
-        bushels = given_bushels - (acres_cost * buy_acres)
-        grain_needed = calculate_grain_target(population, acres + buy_acres, risk_multiplier, turn)
-        surplus = bushels - (buy_acres * acres_cost) - grain_needed
-        wealth = (acres + buy_acres) / population
-        disp_message = (f'buy_acres={buy_acres}? grain_needed={grain_needed}, bushels={bushels}, surplus={surplus}, wealth={wealth:2.2f}:')
-        # cannot buy land unless there is a surplus.
-        if risk_multiplier == 1:
-            if surplus < 0:
-                print(disp_message + ' surplus target met! (surplus<0)')
-                break
-        elif risk_multiplier == 1.5:
-            if surplus < (grain_needed / 4):
-                print(disp_message + ' surplus target met! (surplus<grain_needed/4)')
-                break
-        elif risk_multiplier == 2:
-            if surplus < (grain_needed / 2):
-                print(disp_message + ' surplus target met (surplus<grain_needed/2)!')
-                break
-
-        # we can only plant 10 acres per person
-        if (acres + buy_acres) > can_plant_acres:
-            print(disp_message + ' not enough farmers!')
-            break
-
-        if wealth > 12:
-            print(disp_message + 'already too wealthy!')
-            break
-    return max(0, buy_acres - 1)
+def determine_final_score(stream):
+    match = stream.expect_regex(MATCH_END_RATINGS)
+    for check_score, check_pattern in (
+                        (0, MATCH_NATIONAL_FINK),
+                        (1, MATCH_UNPLEASANT),
+                        (2, MATCH_NOT_TOO_BAD),
+                        (3, MATCH_FANTASTIC)):
+        if check_pattern[:20] in match.match:
+            return check_score
+    assert False, ("Score unmatched", match.match)
 
 
 def save_game_log(game_record):
@@ -465,5 +580,7 @@ def save_game_log(game_record):
 if __name__ == '__main__':
     main(repl='--repl' in sys.argv)
 
-
-# streamexpect.ExpectTimeout: b'SH TO FEED YOUR PEOPLE?\rHOW MANY ACRES DO YOU WISH TO PLANT\rWITH SEED?\r\rHAMURABI: I BEG TO REPORT TO YOU,\rIN YEAR 10, 3 PEOPLE STARVED,\r10 CAME TO THE CITY.\rTHE POPULATION IS NOW 82\rTHE CITY NOW OWNS 616 ACRES.\rYOU HARVESTED 5 BUSHELS PER ACRE,\rRATS ATE 0 BUSHELS,\rYOU NOW HAVE 3603 BUSHELS IN STORE.\r\rLAND IS TRADING AT 25 BUSHELS PER ACRE,\rHOW MANY ACRES DO YOU WISH TO BUY?\r\rHOW MANY BUSHELS DO YOU WISH TO FEED YOUR PEOPLE?\rHOW MANY ACRES DO YOU WISH TO PLANT\rWITH SEED?\r\rHAMURABI: I BEG TO REPORT TO YOU,\rIN YEAR 11, 3 PEOPLE STARVED,\r9 CAME TO THE CITY.\rTHE POPULATION IS NOW 88\rTHE CITY NOW OWNS 648 ACRES.\rYOU HARVESTED 5 BUSHELS PER ACRE,\rRATS ATE 179 BUSHELS,\rYOU NOW HAVE 3960 BUSHELS IN STORE.\r\rIN YOUR 10 YEAR TERM OF OFFICE 4\rPERCENT OF THE POPULATION STARVED ON THE\rAVERAGE, I.E., A TOTAL OF 67 PEOPLE\rDIED!!!\rYOU STARTED WITH 10 ACRES PER PERSON \rAND ENDED WITH 7 ACRES\rPER PERSON.\r\rA LOUSY PERFORMANCE!!!\rTHE PEOPLE (REMAINING) FIND YOU AN\rUNPLEASANT RULER, AND FRANKLY \rHATE YOUR GUTS!!!\rSO LONG FOR NOW\r\r>'
+# todo:
+# - starvation can be increased to account for births, calculate "grand total"
+# - do not sell acres for wealth below 7, this puts us in a losing situation,
+#   better to starve up to 40% of population for better score
