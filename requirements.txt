@@ -1,0 +1,7 @@
+pySerial~=3.5
+blessed~=1.20.0
+tenacity~=8.2.2
+# use local version for extra features ..
+# streamexpect~=0.2.1
+tqdm~=4.65.0
+simple-term-menu~=1.6.4
