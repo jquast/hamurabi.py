@@ -34,7 +34,10 @@ of `BASIC Computer games <https://en.wikipedia.org/wiki/BASIC_Computer_Games>`_:
 play-hamurabi-vs-apple-1.py
 ===========================
 
-This is an "autoplayer", it loads the Apple 1 port of HAMURABI.BAS using wozmon
-bytes and plays an optimized game against it, winning 99.5% of games played, 94%
-of games are won at the highest level by systematically starving 3% of the
-population. More details published at https://www.jeffquast.com/post/hamurabi_bas/
+This is an "autoplayer", it loads the Apple 1 port of HAMURABI.BAS onto an
+`Apple 1 Replica TE <https://en.wikipedia.org/wiki/Replica_1#Third_edition>`_
+using wozmon bytes and plays game against it.
+
+This strategy wins 99.5% of games, with 94% at the highest score level
+
+More details published at https://www.jeffquast.com/post/hamurabi_bas/
