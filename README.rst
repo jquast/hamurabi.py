@@ -1,4 +1,7 @@
-Hamurabi.py -- a modern python port of the BASIC game, `Hamurabi
+Hamurabi.py
+===========
+
+A modern python port of the BASIC game, `Hamurabi
 <https://en.wikipedia.org/wiki/Hamurabi_(video_game)>`_
 
 A very special thanks to the first author of the first Strategy game, `David A.
@@ -27,3 +30,11 @@ of `BASIC Computer games <https://en.wikipedia.org/wiki/BASIC_Computer_Games>`_:
   You will also find that managing just the few resources in this game is not a
   trivial job over a period of say ten years. The crisis of population density
   rears its head very rapidly.
+
+play-hamurabi-vs-apple-1.py
+===========================
+
+This is an "autoplayer", it loads the Apple 1 port of HAMURABI.BAS using wozmon
+bytes and plays an optimized game against it, winning 99.5% of games played, 94%
+of games are won at the highest level by systematically starving 3% of the
+population. More details published at https://www.jeffquast.com/post/hamurabi_bas/
