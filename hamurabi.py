@@ -154,13 +154,13 @@ def main():
     # 865 PRINT D1"PEOPLE DIED!!":L=A/P
     maybe_died = "and nobody died of starvation!!"
     if total_dead:
-        maybe_died = f"{total_dead} people DIED of starvation!!"
+        maybe_died = f"in other words, {total_dead} people DIED of starvation!!"
     echo(f"In your 10-year term of office, {pct_starve:2.2f}% of the "
-         f"population starved, in other words, {maybe_died}")
+         f"population starved, {maybe_died}")
     wealth = acres // population
     # 870 PRINT "YOU STARTED WITH 10 ACRES PER PERSON AND ENDED WITH"
     # 875 PRINT L"ACRES PER PERSON.":PRINT
-    echo("You started with 10 acres per person, and ended with {wealth}.")
+    echo(f"You started with 10 acres per person, and ended with {wealth}.")
 
     # 880 IF P1>33 THEN 565
     # 885 IF L<7 THEN 565
@@ -183,7 +183,7 @@ def main():
         # 975 PRINT "TRIVIAL PROBLEMS."
         echo("Your performance could have been somewhat better, "
              "but really wasn't too bad at all. "
-             "{int(population * .8 * random.random())} people "
+             f"{int(population * .8 * random.random())} people "
              "would dearly like to see you assassinated, but we "
              "all have our trivial problems.")
     else:
@@ -318,7 +318,7 @@ def beeping_end_990():
     # 995 PRINT "SO LONG FOR NOW.":PRINT
     # 999 END
     echo()
-    echo(('\b' * 10) + "So long for now.")
+    echo((chr(7) * 10) + "So long for now.")
     sys.exit()
 
 
