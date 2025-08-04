@@ -105,8 +105,8 @@ MATCH_GAME_OVER = r'You starved (\d+) people in one year!!!'
 MATCH_FINAL_REPORT = r'In your 10-year term of office, ([\d.]+)% of the population starved'
 MATCH_FINAL_REPORT_DEATHS = r'words, (\d+) people DIED of starvation!!'
 MATCH_FINAL_REPORT_NODEATHS = r'and nobody died of starvation!!'
-MATCH_NATIONAL_FINK = r'Due to this extreme mismanagement\.'
-MATCH_FANTASTIC = r'A fantastic performance\.'
+MATCH_NATIONAL_FINK = r'FINK\' !!'
+MATCH_FANTASTIC = r'combined could not have done better'
 MATCH_UNPLEASANT = r'Your heavy-handed performance'
 MATCH_NOT_TOO_BAD = r'Your performance could have been'
 MATCH_END_GAME = r'So long for now\.'
@@ -150,7 +150,7 @@ def play_game(term, print_calc, print_game):
         
         # Load and display game statistics
         try:
-            with open('game_log.csv', 'r') as f:
+            with open('game_log_local.csv', 'r') as f:
                 reader = csv.DictReader(f)
                 games = [row['final_score'] for row in reader]
                 total_games = len(games)
@@ -450,7 +450,7 @@ def save_game_log(game_record):
         'last_turn', 'total_deaths', 'total_harvested', 'total_rats_eaten', 'total_starved', 'total_infants',
         'total_lost_to_plague', 'total_land_purchases', 'total_land_sales']
 
-    with open('game_log.csv', 'a') as f:
+    with open('game_log_local.csv', 'a') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if f.tell() == 0:
             writer.writeheader()

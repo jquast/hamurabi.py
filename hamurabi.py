@@ -121,7 +121,7 @@ def main():
         # 532 REM *** LET'S HAVE SOME BABIES
         # 533 I=INT(C*(20*A+S)/P/100+1)
         _randc = rand_gosub_800()
-        infants = int(_randc * (20 * acres + bushels) / population / 100 + 1)
+        infants = int(_randc * (20 * acres + bushels) // population // 100 + 1)
 
         # 539 REM *** HOW MANY PEOPLE HAD FULL TUMMIES?
         # 540 C=INT(Q/20)
@@ -145,7 +145,7 @@ def main():
             echo()
             echo(f"You starved {dead} people in one year!!!")
             declare_national_fink_565()
-        pct_starve = ((year - 1) * pct_starve + dead * 100 / population) / year
+        pct_starve = ((year - 1) * pct_starve + dead * 100 // population) // year
         population = full_tummies
         total_dead += dead
 
